@@ -27,6 +27,38 @@ def run_task(task: str) -> dict:
 
     return state
 
+def run_task_stream(task: str):
+    """流式版：逐步 yield 事件（前端实时显示过程）
+    事件类型：constraints / plan / step / review / retry / blocked / done"""
+    state = new_state(task)
+    state["constraints"] = parse_constraints(state["task"])
+    yield {"type": "constraints", "data": state["constraints"]}
+
+    state = planner(state)
+    yield {"type": "plan", "data": state["plan"]}
+
+    state = executor(state)
+    for step, result in state["results"].items():
+        yield {"type": "step", "step": step, "data": str(result)[:100]}
+
+    state = reviewer(state)
+    yield {"type": "review", "data": state["review"], "round": state["round"]}
+
+    while not state["review"]["passed"] and state["round"] < MAX_ROUND:
+        if state["review"]["opinion"].startswith("安全拦截"):
+            yield {"type": "blocked", "data": state["review"]}
+            break
+        state["round"] += 1
+        yield {"type": "retry", "round": state["round"],
+               "opinion": state["review"]["opinion"][:60]}
+        state = executor(state)
+        for step, result in state["results"].items():
+            yield {"type": "step", "step": step, "data": str(result)[:100]}
+        state = reviewer(state)
+        yield {"type": "review", "data": state["review"], "round": state["round"]}
+
+    yield {"type": "done", "data": state}
+
 if __name__ == "__main__":
     state = run_task("3天2晚石家庄，预算1000，喜欢吃")
     print("约束:", state["constraints"])

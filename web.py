@@ -6,10 +6,10 @@ import os
 import io
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from main import run_task
+from main import run_task, run_task_stream
 
 app = FastAPI(title="旅行规划多Agent系统")
 
@@ -135,6 +135,15 @@ def generate(req: GenerateRequest):
         "results": state["results"],        # 每步结果（含最终行程"写方案"）
         "final_answer": state["results"].get("写方案", ""),   # 最终行程（Markdown）
     }
+
+# ============ 流式生成（SSE/NDJSON：前端实时看过程） ============
+@app.post("/api/generate/stream")
+def generate_stream(req: GenerateRequest):
+    """流式生成：每行一个 JSON 事件（constraints→plan→step→review→done）"""
+    def gen():
+        for event in run_task_stream(req.task):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 # ============ 历史管理 ============
 @app.post("/api/save")

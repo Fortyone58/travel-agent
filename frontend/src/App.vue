@@ -109,7 +109,7 @@ function trace(text, cls = 't-info') {
   nextTick(() => { if (traceBox.value) traceBox.value.scrollTop = traceBox.value.scrollHeight })
 }
 
-// ===== 生成 =====
+// ===== 生成（流式：实时显示过程） =====
 async function generate() {
   const nl = form.nl.trim()
   let task
@@ -125,43 +125,71 @@ async function generate() {
   resultHtml.value = ''
   canSave.value = false
   currentResult = null
-
   trace(`🧾 任务：${task}`)
-  const c = previewConstraints(task)
-  trace(`📐 约束解析：城市=${c.city || '?'} 天数=${c.days || '?'} 预算=${c.budget || '?'}`, 't-ok')
-  trace('🤖 规划者：解析兴趣、拆分步骤…')
 
   try {
-    const resp = await fetch('/api/generate', {
+    const resp = await fetch('/api/generate/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task }),
     })
-    const data = await resp.json()
-    if (!resp.ok) throw new Error(data.detail || '请求失败')
+    if (!resp.ok) throw new Error('请求失败')
 
-    trace(`📋 计划：${data.plan.join(' → ')}`, 't-ok')
-    for (const [step, result] of Object.entries(data.results)) {
-      trace(`⚙️ 执行【${step}】：${String(result).slice(0, 60)}...`, 't-ok')
-    }
-    if (data.review.passed) {
-      trace(`✅ 评审通过（第${data.round}轮）：${data.review.opinion}`, 't-ok')
-    } else {
-      trace(`🚫 ${data.review.opinion}`, 't-err')
-    }
-
-    currentResult = data
-    if (data.review.passed) {
-      resultHtml.value = marked.parse(data.final_answer || '（无行程内容）')
-      canSave.value = true
-    } else {
-      resultHtml.value = `<div class="empty" style="color:#dc2626">${data.review.opinion}</div>`
+    // 读取流：逐行解析 NDJSON 事件（项目2 的流式经验）
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })   // {stream:true} 防半个汉字
+      const lines = buffer.split('\n')
+      buffer = lines.pop()                                 // 最后一段可能不完整，留到下次
+      for (const line of lines) {
+        if (!line.trim()) continue
+        handleEvent(JSON.parse(line))
+      }
     }
   } catch (e) {
     trace(`❌ 错误：${e.message}`, 't-err')
     resultHtml.value = `<div class="empty" style="color:#dc2626">${e.message}</div>`
   } finally {
     generating.value = false
+  }
+}
+
+// ===== 流式事件处理 =====
+function handleEvent(event) {
+  switch (event.type) {
+    case 'constraints':
+      trace(`📐 约束解析：${JSON.stringify(event.data)}`, 't-ok')
+      break
+    case 'plan':
+      trace(`📋 计划：${event.data.join(' → ')}`, 't-ok')
+      break
+    case 'step':
+      trace(`⚙️ 执行【${event.step}】：${String(event.data).slice(0, 60)}...`, 't-ok')
+      break
+    case 'review':
+      if (event.data.passed) trace(`✅ 评审通过（第${event.round}轮）：${event.data.opinion}`, 't-ok')
+      else trace(`❌ 评审未通过（第${event.round}轮）：${event.data.opinion}`, 't-err')
+      break
+    case 'retry':
+      trace(`↩️ 打回重做（第${event.round}轮）：${event.opinion}`, 't-warn')
+      break
+    case 'blocked':
+      trace(`🚫 ${event.data.opinion}`, 't-err')
+      break
+    case 'done':
+      currentResult = event.data
+      const final = event.data.results['写方案'] || ''
+      if (event.data.review.passed) {
+        resultHtml.value = marked.parse(final || '（无行程内容）')
+        canSave.value = true
+      } else {
+        resultHtml.value = `<div class="empty" style="color:#dc2626">${event.data.review.opinion}</div>`
+      }
+      break
   }
 }
 
