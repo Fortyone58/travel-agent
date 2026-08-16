@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 trips.db
 checkpoints.sqlite
+chroma_db/
