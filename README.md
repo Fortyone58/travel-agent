@@ -60,12 +60,115 @@ reviewer（评审者人格）—— ①代码安全拦截（付款/银行卡→�
 
 ---
 
+## 🔍 RAG 检索流程（三重混合）
+
+```
+用户问题："杭州 景点 美食 攻略"
+    ↓
+① 向量检索（语义）   问题 → 百炼 embedding → Chroma 查 top10     ← 懂同义句
+② BM25 检索（关键词）  问题分词(bigram) → 全量语料打分 top10      ← 专名精确
+③ RRF 融合           两路排名表合成一张（只看名次，不看分数）
+④ 候选 top10 → rerank 精排（百炼 gte-rerank-v2）→ top3
+    ↓
+攻略资料（top3 片段）→ 拼进执行者 prompt → 模型基于真实攻略生成
+```
+
+**攻略入库流程**：
+```
+上传（网页 txt/pdf）或预置（guides/*.md）
+    ↓
+chunk.py 切块（200字/50重叠）→ embed.py 向量化（分批≤10）→ chroma_db
+```
+
+**跨城市隔离**：块 id 带文件名前缀（如 `成都.txt_0`），删除/统计按前缀精确操作。
+
+---
+
+## 🗄️ 数据存储与缓存分工
+
+| 存储 | 类型 | 存什么 | 生命周期 |
+|---|---|---|---|
+| `chroma_db/` | 向量库（Chroma 嵌入式） | 攻略切块 + 向量 | 持久（重新 build_kb 可重建） |
+| `trips.db` | SQLite | 历史行程（task + 完整结果） | 持久 |
+| `checkpoints.sqlite` | SQLite（LangGraph Checkpointer） | 会话记忆（阶段 1 用） | 持久 |
+| `guides/` | 文件 | 攻略源文档（上传/预置） | 持久（可删除） |
+| 前端状态 | Vue 响应式内存 | 当前表单/结果/trace | 会话内（刷新即失） |
+
+**分工原则**：向量库管"检索"（攻略语义），SQLite 管"业务数据"（历史），文件管"源文档"（可读可删），内存管"临时交互状态"。
+
+---
+
+## 🔄 系统数据流
+
+```
+【行程生成】
+网页表单/自然语言 → POST /api/generate
+  → parse.py 约束解析（正则）
+  → planner（模型拆步骤）
+  → executor（真实工具 + RAG 攻略检索 + 模型生成）
+  → reviewer（代码拦截 + 模型评审）→ 不合格打回（≤3轮）
+  → 返回完整 state → 前端渲染（Trace + Markdown 行程）
+
+【保存历史】
+点击保存 → POST /api/save → trips.db → 刷新历史列表
+
+【攻略管理】
+上传 → POST /api/upload → guides/ + chroma_db → 立即可检索
+删除 → DELETE /api/guides/{name} → 删 chroma 块 + 删文件
+列表 → GET /api/guides → 文件清单 + 块数
+```
+
+---
+
+## 🏛️ 核心架构分层
+
+```
+┌─────────────────────────────────────────┐
+│ 前端层（Vue 3 + Vite）                    │
+│   表单 / Trace 展示 / 结果渲染 / 攻略管理   │
+├─────────────────────────────────────────┤
+│ 接口层（FastAPI web.py）                  │
+│   /api/generate /api/save /api/history   │
+│   /api/upload /api/guides                │
+├─────────────────────────────────────────┤
+│ Agent 层（手搓三角色 roles.py）            │
+│   planner → executor → reviewer → 打回    │
+├─────────────────────────────────────────┤
+│ 数据层                                    │
+│   parse（约束）/ state（状态）/ tools（工具）│
+│   rag/（三重检索）/ chroma_db / trips.db   │
+├─────────────────────────────────────────┤
+│ 外部服务层                                │
+│   OpenCode Go（LLM）· 百炼（embed/rerank）│
+│   Open-Meteo（天气）· Nominatim（地理）    │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 📁 关键文件职责
+
+| 文件 | 职责 | 关键点 |
+|---|---|---|
+| `main.py` | 主流程编排（run_task + 打回循环） | while 循环 = 图执行器 |
+| `roles.py` | 三角色 + call_model + query_kb | 多 Agent 本体（三种人格） |
+| `parse.py` | 约束解析（正则） | 数字 0 幻觉的关键 |
+| `tools.py` | 天气/地点/计算工具 | @tool，真实 API |
+| `state.py` | 状态结构（new_state） | 三角色共享账本 |
+| `web.py` | FastAPI 接口（7 个） | 生成/历史/攻略管理 |
+| `build_kb.py` | 预置攻略入库 | 跑一次 |
+| `rag/` | 三重混合检索零件 | chunk/embed/store/bm25/fusion/rerank |
+| `guides/` | 攻略源文档 | 可上传可删除 |
+| `frontend/` | Vue 3 前端 | Vite + 组件化 |
+
+---
+
 ## 🚀 快速开始
 
 ```powershell
 # ① 环境
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install openai python-dotenv langchain langchain-openai langgraph-checkpoint-sqlite fastapi uvicorn requests chromadb rank-bm25
+.\.venv\Scripts\python.exe -m pip install openai python-dotenv langchain langchain-openai langgraph-checkpoint-sqlite fastapi uvicorn requests chromadb rank-bm25 pypdf python-multipart
 
 # ② 配置 .env（key 从环境变量读，不写进代码；DASHSCOPE_API_KEY 用于攻略向量化/重排）
 OPENCODE_GO_KEY=sk-你的key
@@ -75,12 +178,14 @@ DASHSCOPE_API_KEY=sk-你的百炼key
 $env:PYTHONPATH=""
 .\.venv\Scripts\python.exe build_kb.py
 
-# ④ 命令行版（三角色流水线）
-.\.venv\Scripts\python.exe main.py
-
-# ⑤ 网页版
+# ④ 启动后端（FastAPI，端口 8000）
 .\.venv\Scripts\python.exe -m uvicorn web:app --port 8000
-# 浏览器打开 http://127.0.0.1:8000/
+
+# ⑤ 启动前端（Vue 3 + Vite，端口 5173，API 自动代理到 8000）
+cd frontend
+npm install
+npm run dev
+# 浏览器打开 http://localhost:5173/
 ```
 
 ---
@@ -94,25 +199,6 @@ $env:PYTHONPATH=""
 | 偏好约束 | 北京2天，预算2000，亲子游 | ✅ 通过 |
 | 天气变化 | 明天去西安，下雨怎么办，预算800 | ✅ 打回重做后通过（第 2 轮） |
 | 安全边界 | 帮我订酒店付款 | ✅ 代码拦截（轮次 1 终止） |
-
----
-
-## 📁 项目结构
-
-```
-travel-agent\
-├── main.py          # 主循环：run_task（规划→执行→评审→打回）
-├── roles.py         # 三个角色：planner / executor / reviewer + query_kb（攻略检索）
-├── parse.py         # 约束解析（正则，0 幻觉）
-├── tools.py         # 工具：get_weather / search_places / calc（@tool）
-├── state.py         # 状态结构：new_state（三角色共享的账本）
-├── web.py           # FastAPI 后端（生成/保存/历史接口）
-├── index.html       # 前端页面（表单 + Trace + 结果 + 历史）
-├── build_kb.py      # 攻略入库（guides/*.md → chroma_db，跑一次）
-├── guides\          # 攻略文档（杭州.md / 石家庄.md）
-├── rag\             # 三重混合检索零件（chunk/embed/store/bm25/fusion/rerank）
-└── test_cases.py    # 验收：5 类 case
-```
 
 ---
 
