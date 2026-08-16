@@ -27,6 +27,15 @@ def get_all_docs():
     """取出库里全部原文（BM25 检索需要全量语料做语料库）"""
     return collection.get(include=["documents"])["documents"]   #此代码为三重混合检索新加的
 
+def get_all_ids():
+    """取出库里全部 id（攻略管理：删除时按 id 前缀过滤）"""
+    return collection.get(include=[])["ids"]
+
+def delete_ids(ids):
+    """按 id 列表删除（攻略管理：删除某份攻略的所有块）"""
+    if ids:
+        collection.delete(ids=ids)
+
 # if __name__ == "__main__":
 #     # 自测：存 2 句假数据，用"假的相似向量"查，验证检索流程能跑通
 #     add_chunks(

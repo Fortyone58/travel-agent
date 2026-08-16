@@ -89,6 +89,33 @@ async def upload(file: UploadFile = File(...)):
     n = ingest_text(filename, text)
     return {"message": f"{filename} 已入库 {n} 块，可立即在行程中检索"}
 
+# ============ 攻略管理（列表/删除） ============
+@app.get("/api/guides")
+def guides_list():
+    """攻略列表：guides/ 目录文件 + 各自在知识库的块数"""
+    import glob
+    from rag.store import get_all_ids
+    all_ids = get_all_ids()
+    result = []
+    files = sorted(glob.glob("guides/*.txt") + glob.glob("guides/*.md"))
+    for path in files:
+        name = os.path.basename(path)
+        count = sum(1 for i in all_ids if i.startswith(name))   # 按 id 前缀统计块数
+        result.append({"name": name, "chunks": count})
+    return result
+
+@app.delete("/api/guides/{name}")
+def guides_delete(name: str):
+    """删除攻略：从知识库删块 + 删源文件"""
+    from rag.store import get_all_ids, delete_ids
+    all_ids = get_all_ids()
+    to_delete = [i for i in all_ids if i.startswith(name)]       # 该攻略的所有块
+    delete_ids(to_delete)
+    path = os.path.join("guides", name)
+    if os.path.exists(path):
+        os.remove(path)
+    return {"message": f"{name} 已删除（{len(to_delete)} 块）"}
+
 # ============ 页面 ============
 @app.get("/", response_class=FileResponse)
 def index():

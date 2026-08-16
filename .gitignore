@@ -5,3 +5,5 @@ __pycache__/
 trips.db
 checkpoints.sqlite
 chroma_db/
+node_modules/
+frontend/dist/
