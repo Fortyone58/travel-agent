@@ -14,6 +14,7 @@
   - 约束用正则解析——预算 1000 永远不会被模型改成 800（实测对比）
   - "付款/银行卡/身份证"等高风险请求代码级拦截（human-in-the-loop），不靠模型自觉
 - 🌦️ **真实数据工具**：Open-Meteo 天气 + Nominatim 地理编码（免费 API，零成本）
+- 📚 **攻略知识库检索（三重混合 RAG）**：预置城市攻略（杭州/石家庄），执行者生成行程前先检索攻略——景点/价格有真实依据，不靠模型编（向量+BM25+RRF+rerank）
 - 🖥️ **网页交互**：表单/自然语言输入 → 过程 Trace 实时展示 → Markdown 行程渲染 → SQLite 历史保存
 - 🧪 **验收体系**：5 类 case（常规/预算约束/偏好约束/天气变化/安全边界），全部通过
 
@@ -41,7 +42,9 @@ parse.py —— 代码解析约束（正则：城市/天数/预算，数字不�
     ↓
 planner（规划者人格）—— 解析兴趣 + 拆步骤（查天气/查地点/排行程/算预算/写方案）
     ↓
-executor（执行者人格）—— 按步骤干活：天气/地点调真实 API 工具，其余模型生成
+executor（执行者人格）—— 按步骤干活：
+    ├─ 查天气/查地点 → 真实 API 工具（Open-Meteo / Nominatim）
+    ├─ 排行程/算预算/写方案 → 攻略知识库检索（rag/ 三重混合）+ 模型生成
     ↓
 reviewer（评审者人格）—— ①代码安全拦截（付款/银行卡→直接终止）②模型质量评审
     ↓
@@ -62,16 +65,20 @@ reviewer（评审者人格）—— ①代码安全拦截（付款/银行卡→�
 ```powershell
 # ① 环境
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install openai python-dotenv langchain langchain-openai langgraph-checkpoint-sqlite fastapi uvicorn requests
+.\.venv\Scripts\python.exe -m pip install openai python-dotenv langchain langchain-openai langgraph-checkpoint-sqlite fastapi uvicorn requests chromadb rank-bm25
 
-# ② 配置 .env（key 从环境变量读，不写进代码）
+# ② 配置 .env（key 从环境变量读，不写进代码；DASHSCOPE_API_KEY 用于攻略向量化/重排）
 OPENCODE_GO_KEY=sk-你的key
+DASHSCOPE_API_KEY=sk-你的百炼key
 
-# ③ 命令行版（三角色流水线）
+# ③ 攻略入库（跑一次：guides/*.md → 切块 → 向量化 → chroma_db）
 $env:PYTHONPATH=""
+.\.venv\Scripts\python.exe build_kb.py
+
+# ④ 命令行版（三角色流水线）
 .\.venv\Scripts\python.exe main.py
 
-# ④ 网页版
+# ⑤ 网页版
 .\.venv\Scripts\python.exe -m uvicorn web:app --port 8000
 # 浏览器打开 http://127.0.0.1:8000/
 ```
@@ -93,18 +100,17 @@ $env:PYTHONPATH=""
 ## 📁 项目结构
 
 ```
-第二个小型agent项目\
+travel-agent\
 ├── main.py          # 主循环：run_task（规划→执行→评审→打回）
-├── roles.py         # 三个角色：planner / executor / reviewer（多 Agent 本体）
+├── roles.py         # 三个角色：planner / executor / reviewer + query_kb（攻略检索）
 ├── parse.py         # 约束解析（正则，0 幻觉）
 ├── tools.py         # 工具：get_weather / search_places / calc（@tool）
 ├── state.py         # 状态结构：new_state（三角色共享的账本）
 ├── web.py           # FastAPI 后端（生成/保存/历史接口）
 ├── index.html       # 前端页面（表单 + Trace + 结果 + 历史）
-├── main_v1.py       # 阶段 1 备份（LangChain create_agent 版）
-├── test_parse.py    # 验收：约束解析
-├── test_tools.py    # 验收：工具
-├── test_reviewer.py # 验收：安全拦截
+├── build_kb.py      # 攻略入库（guides/*.md → chroma_db，跑一次）
+├── guides\          # 攻略文档（杭州.md / 石家庄.md）
+├── rag\             # 三重混合检索零件（chunk/embed/store/bm25/fusion/rerank）
 └── test_cases.py    # 验收：5 类 case
 ```
 
