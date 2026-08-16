@@ -65,18 +65,32 @@ def planner(state: dict) -> dict:
     state["plan"] = data["plan"]                             # 步骤填进 state
     return state
 
+# 攻略检索缓存（同问题只查一次，显著提速）
+_kb_cache = {}
+
+def query_kb_cached(question: str) -> str:
+    """带缓存的攻略检索：同一问题第二次直接命中内存"""
+    if question in _kb_cache:
+        return _kb_cache[question]
+    result = query_kb(question)
+    _kb_cache[question] = result
+    return result
+
 def executor(state: dict) -> dict:
     """执行者：按步骤干活（代码分发工具 + 攻略检索增强 + 模型生成）"""
     city = state["constraints"]["city"]              # 城市（代码定的，不会错）
+
+    # ① 攻略只检索一次（存进 state，后续所有步骤复用同一份资料）——原来每步各查一次
+    guide = query_kb_cached(f"{city} 旅行攻略 景点 美食 价格")
+    state["guide"] = guide
+
     for step in state["plan"]:                       # 遍历每个步骤
         if "天气" in step:                            # 含"天气" → 调天气工具
             state["results"][step] = get_weather.invoke(city)     # .invoke()！不是直接调用
-        elif "地点" in step or "景点" in step:        # 含"地点/景点" → 攻略检索 + 地理信息
-            guide = query_kb(f"{city} 景点 美食 攻略")   # ① 攻略知识库检索（RAG 增强）
-            geo = search_places.invoke(city)             # ② 真实地理信息
+        elif "地点" in step or "景点" in step:        # 含"地点/景点" → 攻略 + 地理信息
+            geo = search_places.invoke(city)             # 真实地理信息
             state["results"][step] = f"【攻略资料】\n{guide}\n\n【地理信息】\n{geo}"
-        else:                                        # 其他（排行程/算预算/写方案）→ 攻略增强 + 模型生成
-            guide = query_kb(f"{city} {step}")           # 检索相关攻略（每步带真实资料）
+        else:                                        # 其他（排行程/算预算/写方案）→ 复用攻略 + 模型生成
             sys_prompt = """你是旅行执行者。严格按步骤和约束执行，输出详细结果。
 优先采用以下攻略资料（真实信息，价格/地点以此为准）：
 {guide}
