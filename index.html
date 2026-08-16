@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>旅行规划多Agent系统</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #f1f5f9; color: #1e293b; }
+  .header { background: #0f172a; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; }
+  .header .tag { background: #334155; padding: 4px 10px; border-radius: 12px; font-size: 12px; }
+  .layout { display: flex; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+  .sidebar { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h3 { font-size: 15px; margin-bottom: 12px; color: #0f172a; }
+  .form label { display: block; font-size: 13px; margin: 10px 0 4px; color: #475569; }
+  .form input, .form textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 14px; font-family: inherit;
+  }
+  .form textarea { height: 70px; resize: vertical; }
+  .btn {
+    width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 14px;
+    cursor: pointer; margin-top: 14px; background: #2563eb; color: #fff; font-weight: bold;
+  }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+  .main { flex: 1; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .history-list { max-height: 260px; overflow-y: auto; }
+  .history-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 6px; font-size: 12px;
+  }
+  .history-item .h-task { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .history-item button { border: none; background: #fee2e2; color: #b91c1c; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
+  .trace { max-height: 240px; overflow-y: auto; background: #0f172a; color: #e2e8f0;
+           border-radius: 8px; padding: 12px; font-size: 12px; font-family: Consolas, monospace; line-height: 1.8; }
+  .trace .t-ok { color: #4ade80; }
+  .trace .t-info { color: #93c5fd; }
+  .trace .t-warn { color: #fbbf24; }
+  .trace .t-err { color: #f87171; }
+  .result { min-height: 300px; }
+  .result .md { line-height: 1.8; font-size: 14px; }
+  .result .md h1, .result .md h2, .result .md h3 { margin: 16px 0 8px; }
+  .result .md table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  .result .md th, .result .md td { border: 1px solid #e2e8f0; padding: 6px 8px; font-size: 13px; }
+  .result .md th { background: #f8fafc; }
+  .result .md code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  .empty { color: #94a3b8; text-align: center; padding: 60px 0; }
+  .save-row { display: flex; gap: 8px; }
+  .save-row .btn { flex: 1; margin-top: 8px; }
+  .btn-gray { background: #475569; }
+  .btn-gray:hover { background: #334155; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🗺️ 旅行规划多Agent系统</h1>
+  <span class="tag">规划-执行-评审</span>
+  <span class="tag">手搓三角色</span>
+</div>
+
+<div class="layout">
+  <!-- ============ 左侧：输入 + 历史 ============ -->
+  <div class="sidebar">
+    <div class="card form">
+      <h3>✏️ 旅行需求</h3>
+      <label>目的地</label>
+      <input id="in-city" placeholder="如：石家庄">
+      <label>旅行天数</label>
+      <input id="in-days" placeholder="如：3">
+      <label>预算（元）</label>
+      <input id="in-budget" placeholder="如：1000">
+      <label>兴趣偏好</label>
+      <input id="in-interests" placeholder="如：美食、博物馆">
+      <label>或直接输入自然语言</label>
+      <textarea id="in-nl" placeholder="3天2晚石家庄，预算1000，喜欢吃"></textarea>
+      <button class="btn" id="btn-generate" onclick="generate()">🚀 生成旅行方案</button>
+    </div>
+
+    <div class="card">
+      <h3>🗂️ 历史记录</h3>
+      <div class="history-list" id="history-list">
+        <div class="empty">暂无历史</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 右侧：过程 + 结果 ============ -->
+  <div class="main">
+    <div class="card">
+      <h3>🔍 运行过程（Trace）</h3>
+      <div class="trace" id="trace">
+        <div class="t-info">等待输入…</div>
+      </div>
+    </div>
+
+    <div class="card result">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3>📄 行程方案</h3>
+        <div class="save-row">
+          <button class="btn btn-gray" id="btn-save" onclick="saveTrip()" style="margin-top:0; width:auto; padding:6px 14px;" disabled>💾 保存</button>
+        </div>
+      </div>
+      <div id="result-box"><div class="empty">生成结果会显示在这里</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentResult = null;   // 当前生成的结果（保存用）
+
+// ============ 过程 trace ============
+function trace(msg, cls) {
+  const t = document.getElementById("trace");
+  const line = document.createElement("div");
+  line.className = cls || "t-info";
+  line.textContent = msg;
+  t.appendChild(line);
+  t.scrollTop = t.scrollHeight;
+}
+
+// ============ 生成 ============
+async function generate() {
+  // ① 组任务：优先自然语言，否则用表单拼
+  const nl = document.getElementById("in-nl").value.trim();
+  let task;
+  if (nl) {
+    task = nl;
+  } else {
+    const city = document.getElementById("in-city").value.trim();
+    const days = document.getElementById("in-days").value.trim();
+    const budget = document.getElementById("in-budget").value.trim();
+    const interests = document.getElementById("in-interests").value.trim();
+    if (!city) { alert("请填写目的地"); return; }
+    task = `${days || 1}天${city}，预算${budget || 500}${interests ? "，喜欢" + interests : ""}`;
+  }
+
+  const btn = document.getElementById("btn-generate");
+  btn.disabled = true;
+  document.getElementById("trace").innerHTML = "";
+  document.getElementById("result-box").innerHTML = '<div class="empty">生成中…（多Agent协作约1-2分钟）</div>';
+  currentResult = null;
+  document.getElementById("btn-save").disabled = true;
+
+  trace(`🧾 任务：${task}`);
+
+  // ② 前端先做约束预览（和 parse.py 一样的逻辑，仅展示）
+  const c = previewConstraints(task);
+  trace(`📐 约束解析：城市=${c.city || "?"} 天数=${c.days || "?"} 预算=${c.budget || "?"}`, "t-ok");
+
+  // ③ 调后端（跑完整三角色流水线）
+  trace("🤖 规划者：解析兴趣、拆分步骤…");
+  try {
+    const resp = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "请求失败");
+
+    // ④ 展示过程
+    trace(`📋 计划：${data.plan.join(" → ")}`, "t-ok");
+    for (const [step, result] of Object.entries(data.results)) {
+      trace(`⚙️ 执行【${step}】：${String(result).slice(0, 60)}...`, "t-ok");
+    }
+    if (data.review.passed) {
+      trace(`✅ 评审通过（第${data.round}轮）：${data.review.opinion}`, "t-ok");
+    } else {
+      trace(`🚫 ${data.review.opinion}`, "t-err");
+    }
+
+    // ⑤ 渲染结果（Markdown）
+    currentResult = data;
+    const box = document.getElementById("result-box");
+    if (data.review.passed) {
+      box.innerHTML = `<div class="md">${marked.parse(data.final_answer || "（无行程内容）")}</div>`;
+      document.getElementById("btn-save").disabled = false;
+    } else {
+      box.innerHTML = `<div class="empty" style="color:#dc2626">${data.review.opinion}</div>`;
+    }
+  } catch (e) {
+    trace(`❌ 错误：${e.message}`, "t-err");
+    document.getElementById("result-box").innerHTML = `<div class="empty" style="color:#dc2626">${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ============ 约束预览（前端正则，和 parse.py 一致） ============
+function previewConstraints(task) {
+  const days = (task.match(/(\d+)天/) || [])[1] || "";
+  const budget = (task.match(/预算\s*(\d+)/) || [])[1] || "";
+  let cleaned = task.replace(/(帮我|请|规划|制定|安排)/g, "");
+  let city = (cleaned.match(/([\u4e00-\u9fa5]{2,4})\s*(?=\d+天)/) || [])[1] || "";
+  if (!city) {
+    cleaned = cleaned.replace(/\d+天/g, "").replace(/\d+晚/g, "");
+    city = (cleaned.match(/(?:去|到|在|玩)([\u4e00-\u9fa5]{2,4})/) || [])[1] || "";
+    if (!city) city = (cleaned.match(/([\u4e00-\u9fa5]{2,4})\s*[,，]\s*预算/) || [])[1] || "";
+  }
+  return { city, days, budget };
+}
+
+// ============ 保存历史 ============
+async function saveTrip() {
+  if (!currentResult) return;
+  const resp = await fetch("/api/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task: currentResult.task, result: currentResult }),
+  });
+  const data = await resp.json();
+  trace(`💾 已保存（ID ${data.id}）`, "t-ok");
+  loadHistory();
+}
+
+// ============ 历史列表 ============
+async function loadHistory() {
+  const resp = await fetch("/api/history");
+  const list = await resp.json();
+  const box = document.getElementById("history-list");
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">暂无历史</div>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const item of list) {
+    const div = document.createElement("div");
+    div.className = "history-item";
+    div.innerHTML = `
+      <span class="h-task" onclick="openHistory(${item.id})" title="${item.task}">${item.task}</span>
+      <span style="color:#94a3b8; font-size:11px;">${item.created_at}</span>
+      <button onclick="delHistory(${item.id})">删除</button>`;
+    box.appendChild(div);
+  }
+}
+
+async function openHistory(id) {
+  const resp = await fetch(`/api/history/${id}`);
+  const data = await resp.json();
+  currentResult = data.result;
+  document.getElementById("trace").innerHTML = "";
+  trace(`🧾 历史任务：${data.task}`);
+  trace(`📋 计划：${data.result.plan.join(" → ")}`, "t-ok");
+  for (const [step, result] of Object.entries(data.result.results)) {
+    trace(`⚙️ 【${step}】：${String(result).slice(0, 60)}...`, "t-ok");
+  }
+  trace(`✅ 评审：${data.result.review.opinion}`, "t-ok");
+  document.getElementById("result-box").innerHTML =
+    `<div class="md">${marked.parse(data.result.final_answer || "（无行程内容）")}</div>`;
+  document.getElementById("btn-save").disabled = true;
+}
+
+async function delHistory(id) {
+  await fetch(`/api/history/${id}`, { method: "DELETE" });
+  loadHistory();
+}
+
+// 初始化
+loadHistory();
+</script>
+</body>
+</html>
