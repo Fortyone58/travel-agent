@@ -81,6 +81,13 @@
     </div>
 
     <div class="card">
+      <h3>📚 上传攻略（txt/pdf）</h3>
+      <input type="file" id="file-guide" accept=".txt,.pdf" style="font-size:12px; margin-bottom:8px;">
+      <button class="btn" id="btn-upload" onclick="uploadGuide()" style="margin-top:0;">⬆️ 上传并入库</button>
+      <div id="upload-msg" style="font-size:12px; color:#475569; margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
       <h3>🗂️ 历史记录</h3>
       <div class="history-list" id="history-list">
         <div class="empty">暂无历史</div>
@@ -202,6 +209,27 @@ function previewConstraints(task) {
     if (!city) city = (cleaned.match(/([\u4e00-\u9fa5]{2,4})\s*[,，]\s*预算/) || [])[1] || "";
   }
   return { city, days, budget };
+}
+
+// ============ 上传攻略 ============
+async function uploadGuide() {
+  const fileInput = document.getElementById("file-guide");
+  const msg = document.getElementById("upload-msg");
+  if (!fileInput.files.length) { msg.textContent = "请先选择 txt 或 pdf 文件"; return; }
+
+  const form = new FormData();
+  form.append("file", fileInput.files[0]);
+
+  msg.textContent = "上传中…（向量化约 10-30 秒）";
+  try {
+    const resp = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "上传失败");
+    msg.textContent = "✅ " + data.message;
+    trace(`📚 攻略已入库：${data.message}`, "t-ok");
+  } catch (e) {
+    msg.textContent = "❌ " + e.message;
+  }
 }
 
 // ============ 保存历史 ============
