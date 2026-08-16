@@ -5,13 +5,13 @@ Set-Location $PSScriptRoot
 
 Write-Host "🚀 启动后端（FastAPI :8000）..."
 $backend = Start-Process -FilePath ".\.venv\Scripts\python.exe" `
-    -ArgumentList "-m", "uvicorn", "web:app", "--port", "8000" `
+    -ArgumentList "-m", "uvicorn", "app.web:app", "--port", "8000" `
     -WindowStyle Minimized -PassThru
 
 Start-Sleep 3
 
 Write-Host "🚀 启动前端（Vue :5173）..."
-Set-Location "$PSScriptRoot\frontend"
+Set-Location "$PSScriptRoot\app\frontend"
 $frontend = Start-Process -FilePath "npm.cmd" `
     -ArgumentList "run", "dev" `
     -WindowStyle Minimized -PassThru

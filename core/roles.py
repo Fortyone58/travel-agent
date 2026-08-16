@@ -3,14 +3,14 @@ from dotenv import load_dotenv
 import os
 import json
 from openai import OpenAI
-from tools import get_weather, search_places, calc   # 导入工具（@tool 对象）
+from services.tools import get_weather, search_places, calc   # 导入工具（@tool 对象）
 
 # 攻略知识库（RAG 增强，复用项目2 的三重混合检索零件）
-from rag.embed import embed_texts
-from rag.store import query_topk, get_all_docs
-from rag.bm25 import top_k as bm25_topk
-from rag.fusion import rrf_merge
-from rag.rerank import rerank
+from services.rag.embed import embed_texts
+from services.rag.store import query_topk, get_all_docs
+from services.rag.bm25 import top_k as bm25_topk
+from services.rag.fusion import rrf_merge
+from services.rag.rerank import rerank
 
 load_dotenv()
 

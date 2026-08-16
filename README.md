@@ -150,16 +150,18 @@ chunk.py 切块（200字/50重叠）→ embed.py 向量化（分批≤10）→ c
 
 | 文件 | 职责 | 关键点 |
 |---|---|---|
-| `main.py` | 主流程编排（run_task + 打回循环） | while 循环 = 图执行器 |
-| `roles.py` | 三角色 + call_model + query_kb | 多 Agent 本体（三种人格） |
-| `parse.py` | 约束解析（正则） | 数字 0 幻觉的关键 |
-| `tools.py` | 天气/地点/计算工具 | @tool，真实 API |
-| `state.py` | 状态结构（new_state） | 三角色共享账本 |
-| `web.py` | FastAPI 接口（7 个） | 生成/历史/攻略管理 |
-| `build_kb.py` | 预置攻略入库 | 跑一次 |
-| `rag/` | 三重混合检索零件 | chunk/embed/store/bm25/fusion/rerank |
-| `guides/` | 攻略源文档 | 可上传可删除 |
-| `frontend/` | Vue 3 前端 | Vite + 组件化 |
+| `main.py` | 命令行入口（薄壳） | 实际逻辑在 core/pipeline |
+| `core/pipeline.py` | 主流程编排（run_task + 流式生成器） | while 循环 = 图执行器 |
+| `core/roles.py` | 三角色 + call_model + query_kb | 多 Agent 本体（三种人格） |
+| `core/parse.py` | 约束解析（正则） | 数字 0 幻觉的关键 |
+| `core/state.py` | 状态结构（new_state） | 三角色共享账本 |
+| `services/tools.py` | 天气/地点/计算工具 | @tool，真实 API |
+| `services/build_kb.py` | 预置攻略入库 | 跑一次 |
+| `services/rag/` | 三重混合检索零件 | chunk/embed/store/bm25/fusion/rerank |
+| `services/guides/` | 攻略源文档 | 可上传可删除 |
+| `app/web.py` | FastAPI 接口（9 个） | 生成/历史/攻略管理/流式 |
+| `app/frontend/` | Vue 3 前端 | Vite + 组件化 |
+| `start.ps1` | 一键启动（后端+前端+浏览器） | 开发体验 |
 
 ---
 
@@ -182,7 +184,7 @@ $env:PYTHONPATH=""
 .\.venv\Scripts\python.exe -m uvicorn web:app --port 8000
 
 # ⑤ 启动前端（Vue 3 + Vite，端口 5173，API 自动代理到 8000）
-cd frontend
+cd app/frontend
 npm install
 npm run dev
 # 浏览器打开 http://localhost:5173/

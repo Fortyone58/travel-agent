@@ -9,7 +9,9 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from main import run_task, run_task_stream
+from core.pipeline import run_task, run_task_stream
+
+GUIDES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "services", "guides")
 
 app = FastAPI(title="旅行规划多Agent系统")
 
@@ -48,9 +50,9 @@ class SaveRequest(BaseModel):
 # ============ 攻略上传 ============
 def ingest_text(name: str, text: str) -> int:
     """攻略文本入库：切块 → 向量化（分批）→ 存入 chroma_db"""
-    from rag.chunk import chunk_text        # 切块（200字/50重叠）
-    from rag.embed import embed_texts       # 向量化（百炼）
-    from rag.store import add_chunks        # 入库
+    from services.rag.chunk import chunk_text        # 切块（200字/50重叠）
+    from services.rag.embed import embed_texts       # 向量化（百炼）
+    from services.rag.store import add_chunks        # 入库
     chunks = chunk_text(text)
     vecs = []
     for i in range(0, len(chunks), 10):     # 分批（百炼上限 10 条）
@@ -81,8 +83,8 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="未能从文件中提取到文本")
 
     # 保存原件到 guides/（保留原始文件）
-    os.makedirs("guides", exist_ok=True)
-    with open(os.path.join("guides", filename), "wb") as f:
+    os.makedirs(GUIDES_DIR, exist_ok=True)
+    with open(os.path.join(GUIDES_DIR, filename), "wb") as f:
         f.write(content)
 
     # 入库（切块→向量化→chroma_db）
@@ -94,10 +96,10 @@ async def upload(file: UploadFile = File(...)):
 def guides_list():
     """攻略列表：guides/ 目录文件 + 各自在知识库的块数"""
     import glob
-    from rag.store import get_all_ids
+    from services.rag.store import get_all_ids
     all_ids = get_all_ids()
     result = []
-    files = sorted(glob.glob("guides/*.txt") + glob.glob("guides/*.md"))
+    files = sorted(glob.glob(os.path.join(GUIDES_DIR, "*.txt")) + glob.glob(os.path.join(GUIDES_DIR, "*.md")))
     for path in files:
         name = os.path.basename(path)
         count = sum(1 for i in all_ids if i.startswith(name))   # 按 id 前缀统计块数
@@ -107,11 +109,11 @@ def guides_list():
 @app.delete("/api/guides/{name}")
 def guides_delete(name: str):
     """删除攻略：从知识库删块 + 删源文件"""
-    from rag.store import get_all_ids, delete_ids
+    from services.rag.store import get_all_ids, delete_ids
     all_ids = get_all_ids()
     to_delete = [i for i in all_ids if i.startswith(name)]       # 该攻略的所有块
     delete_ids(to_delete)
-    path = os.path.join("guides", name)
+    path = os.path.join(GUIDES_DIR, name)
     if os.path.exists(path):
         os.remove(path)
     return {"message": f"{name} 已删除（{len(to_delete)} 块）"}
